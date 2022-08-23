@@ -247,9 +247,6 @@ parser.add_argument("-o", "--output", help="Indicate a path to a file where to w
 parser.add_argument("-v", "--verbose", action="store_true", dest="verbose")
 parser.add_argument("-p", "--port", dest="port", type=int, default=-1,
                     help="define the port on which the ssl test must be done")
-parser.add_argument("-cert", "--certificate", dest="cert",
-                    help="If mentioned, the certificate used by the machine will be stored",
-                    action="store_true")
 parser.add_argument("-mp", "--module_path", default=None, dest="module_path",
                     help="Describe the path of the config module, if not specified it will lookup in it's current\
                               directory")
