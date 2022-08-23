@@ -73,6 +73,10 @@ class OutputClass:
 
 class VerboseOutputClass:
 
+    """
+    Class used to make a verbose output
+    """
+
     def __init__(self, path, name, cipher_dict):
         self.cipher_dict = cipher_dict
         self.path = path
@@ -116,6 +120,9 @@ class VerboseOutputClass:
 
 
 class Config:
+    """
+    A class representing the specific command line config
+    """
 
     def __init__(self, parsed_args):
         self.list_address = parsed_args.iplist
@@ -127,7 +134,6 @@ class Config:
         self.input = parsed_args.input
         self.verbose = parsed_args.verbose
         self.output = parsed_args.output
-        self.cert = parsed_args.cert
         if parsed_args.port != -1:
             self.port = parsed_args.port
         else:
@@ -137,6 +143,10 @@ class Config:
 
 
 class ModLoader:
+    """
+    An informal file loader that load a module from a filepath, to get the module variable which work as a standard
+    you need to instantiate the class and then call the load_module method which will return the module
+    """
 
     def __init__(self, path):
         if path is None:
@@ -145,6 +155,10 @@ class ModLoader:
             self.path = path
 
     def load_module(self):
+        """
+        Load the module from the path given
+        :return:
+        """
         file = open(self.path)
         content = file.read()
         file.close()
@@ -159,6 +173,8 @@ class ModLoader:
             -mode which is a string that define the type of operation, for the moment only "add" is supported
             -cipher_suites which is a dictionary following the same format as the cipher_suites in config.py
             -handshake_pkts which is a dictionary following the same format as handshake_pkts in config.py
+        For the moment, the updated file will not be easily readable from a human. When calling the update_config
+         method, it will automatically call the load_module method after and return the updated module
         :param path: str
         :return: ModuleType
         """
@@ -189,10 +205,9 @@ class Prog:
         """
         Initialise the execution of the program. Argument are a Config instance containing the necessary attributes for
         the program execution and handler is a text handler called to write in file or in the standard output
-        :param handler:
-        :param conf:
+        :param handler: dict
+        :param conf: Config
         """
-        self.text_handler = handler
         self.conf = conf
         self.mod_loader = ModLoader(self.conf.module_path)
         if self.conf.update is not None:
@@ -204,11 +219,10 @@ class Prog:
             for cipher in self.mod.cipher_suites.keys():
                 cipher_str_list += "," + self.mod.cipher_suites[cipher]["name"]
             first_line = "addr" + cipher_str_list
-            if handler == VerboseOutputClass or handler == OutputClass:
-                if self.conf.verbose:
-                    self.text_handler = VerboseOutputClass(self.conf.output, proto_name, self.mod.cipher_suites)
-                else:
-                    self.text_handler = OutputClass(self.conf.output, proto_name, self.mod.cipher_suites)
+            if self.conf.verbose:
+                self.text_handler = handler["verbose"](self.conf.output, proto_name, self.mod.cipher_suites)
+            else:
+                self.text_handler = handler["raw"](self.conf.output, proto_name, self.mod.cipher_suites)
             self.text_handler(first_line)
             for address in self.conf.list_address:
                 tested_cipher_line = address
@@ -255,6 +269,10 @@ parser.add_argument("-u", "--update", dest="update", default=None, help="Specify
                                                                             more information")
 
 if __name__ == "__main__":
+    handler_dict = {
+        "verbose": VerboseOutputClass,
+        "raw": OutputClass
+    }
     parsed_input = parser.parse_args()
     config = Config(parsed_input)  # Generating the config instance
     Prog(OutputClass, config)  # Starting the execution of the mapping

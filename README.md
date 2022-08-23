@@ -13,6 +13,10 @@ separated by carriage return. Addresses can be IPv4 addresses or domain name
 An option that describe a specific port to check the ciphers on, by default it is set to 443 which is the HTTPS tcp port
 #### -mp | --module_path
 Define a specific path to the module path containing the program config, by default it will look in its current directory
-
 #### -u | --update
 Define a path to a python file update in aim to update the SSL/TLS cipher list for new versions
+#### -h | --help
+Give the help menu of the command line tool
+### Updating pysmapper
+To update psymapper you need to execute `pysmapper.py --update <config file>` where config file is a path to a python.
+It is the same as describe just above. However the python update file need some specific element to work well.
