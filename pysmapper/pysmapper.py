@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 import binascii
 import socket
+import subprocess
 import sys
 import os
 import types
@@ -54,7 +55,7 @@ def check(proto, cipher, rand_bytes, host, port):
 
 class OutputClass:
 
-    def __init__(self, path, name,cipher_dict):
+    def __init__(self, path, name, cipher_dict):
         self.path = path
         if path is not None:
             self.path = path + os.sep + name + ".csv"
@@ -72,7 +73,6 @@ class OutputClass:
 
 
 class VerboseOutputClass:
-
     """
     Class used to make a verbose output
     """
@@ -140,6 +140,14 @@ class Config:
             self.port = 443
         self.module_path = parsed_args.module_path
         self.update = parsed_args.update
+        self.format = parsed_args.format
+        self.on_unsecure_text = parsed_args.on_unsecure_text
+        self.on_refused_text = parsed_args.on_refused_text
+        self.on_accepted_text = parsed_args.on_accepted_text
+        self.unsecure_on_refuse = parsed_args.unsecure_on_refuse
+        self.on_unsecure_callback = parsed_args.on_unsecure_callback
+        self.on_refused_callback = parsed_args.on_refused_callback
+        self.on_accepted_callback = parsed_args.on_accepted_callback
 
 
 class ModLoader:
@@ -187,8 +195,9 @@ class ModLoader:
         if new_conf["mode"] == 'add':
             old_conf.handshake_pkts.update(new_conf["handshake_pkts"])
             old_conf.cipher_suites.update(new_conf["cipher_suites"])
-        str_conf = "handshake_pkts = " + str(old_conf.handshake_pkts) + "\ncipher_suites = " + str(
-            old_conf.cipher_suites) + "\nrand_bytes = " + str(old_conf.rand_bytes)
+        str_conf = "handshake_pkts = " + str(old_conf.handshake_pkts) + "\n\ncipher_suites = " + str(
+            old_conf.cipher_suites) + "\n\nrand_bytes = " + str(old_conf.rand_bytes) + "\n\naccept_cipher = " + str(
+            old_conf.accept_cipher) + "\n\naccept_proto = " + str(old_conf.accept_proto)
         file = open(self.path, "w")
         file.write(str_conf)
         file.close()
@@ -208,33 +217,91 @@ class Prog:
         :param handler: dict
         :param conf: Config
         """
+        self.handler = handler
         self.conf = conf
+        if self.conf.verbose:
+            self.text_handler = self.handler["verbose"]
+        else:
+            self.text_handler = self.handler[self.conf.format]
         self.mod_loader = ModLoader(self.conf.module_path)
         if self.conf.update is not None:
             self.mod = self.mod_loader.update_config(self.conf.update)
         else:
             self.mod = self.mod_loader.load_module()
+
+    def __call__(self):
         for proto_name, proto_handshake in self.mod.handshake_pkts.items():
             cipher_str_list = ""
             for cipher in self.mod.cipher_suites.keys():
                 cipher_str_list += "," + self.mod.cipher_suites[cipher]["name"]
             first_line = "addr" + cipher_str_list
-            if self.conf.verbose:
-                self.text_handler = handler["verbose"](self.conf.output, proto_name, self.mod.cipher_suites)
-            else:
-                self.text_handler = handler["raw"](self.conf.output, proto_name, self.mod.cipher_suites)
-            self.text_handler(first_line)
+            self.text_handler(self.conf.output, proto_name, self.mod.cipher_suites)  # instantiating the text_handler
+            self.text_handler(first_line)  # start of the writing process
             for address in self.conf.list_address:
                 tested_cipher_line = address
                 for cipher in self.mod.cipher_suites.keys():
                     result = check(proto_handshake, cipher, self.mod.rand_bytes, address, self.conf.port)
-                    if result == -1:
-                        tested_cipher_line += ",e"
-                    elif result == 0:
-                        tested_cipher_line += ",n"
-                    else:
-                        tested_cipher_line += ",y"
+                    str_result = self.result_handler(result, cipher, proto_name)
+                    unsecure, reason = self.is_unsecure(cipher, proto_name)
+                    if unsecure:
+                        if result == 0 and not self.conf.unsecure_on_refuse:
+                            pass
+                        else:
+                            str_result = self.on_unsecure(
+                                {"reason": reason, "standard-text": str_result, "proto-name": proto_name,
+                                 "cipher-suite": cipher, "address": address})
+                    tested_cipher_line += str_result
                 self.text_handler(tested_cipher_line)
+
+    def on_unsecure(self, info):
+        """
+        A method called in case an unsecure cipher is detected, it receives as a parameter a dictionary as info. info
+        contains information about which cipher, which version and which machine the unsecure process has occurred.
+        It must return a string that works for a csv transformation as the standard-text to be well interpreted by the
+        text_handler. If you replace the text formatter, make sure it can handle your result if it does not follow the
+        standard one
+        :param info: dict
+        :return: str
+        """
+        if self.conf.on_unsecure_callback is not None:
+            text = subprocess.run(self.conf.on_unsecure_callback.split(" ")).stdout
+        else:
+            text = info["standard-text"] + self.conf.on_unsecure_text
+        return text
+
+    def result_handler(self, result, cipher, proto_name):
+        """
+        A method which is called to analyse the result, it must return a value understandable by the on_unsecure and
+        text_handler method, the default one will adapt himself to return a value for the csv.
+        :param proto_name: str
+        :param cipher: str
+        :param result: int
+        :return: Any
+        """
+        if result == -1:
+            return ",e"
+        elif result == 0:
+            if self.conf.on_refused_text is not None:
+                return subprocess.run(self.conf.on_refused_callback.split(" ") + [cipher, proto_name],
+                                      encoding="utf-8").stdout
+            return self.conf.on_refused_text
+        else:
+            if self.conf.on_accepted_callback is not None:
+                return subprocess.run(self.conf.on_accepted_callback.split(" ") + [cipher, proto_name],
+                                      encoding="utf-8").stdout
+            return self.conf.on_accepted_text
+
+    def is_unsecure(self, cipher_suite, proto):
+        if cipher_suite not in self.mod.accept_cipher:
+            if proto not in self.mod.accept_proto:
+                return True, 3
+            else:
+                return True, 2
+        else:
+            if proto not in self.mod.accept_proto:
+                return True, 1
+            else:
+                return False, 0
 
     def text_handler(self, text):
         """
@@ -248,8 +315,10 @@ class Prog:
 
 
 # Creating the command-line argument parser
-parser = argparse.ArgumentParser(description="Test which ciphers are available on an ssl connexion",
-                                 epilog="Take a cup of tea after launching this process because it may take prtty\
+parser = argparse.ArgumentParser(
+    description="Test which ciphers are available on an ssl connexion. This utils only support hostname and IPv4\
+     addresses",
+    epilog="Take a cup of tea after launching this process because it may take prtty\
                                       much time")
 parser.add_argument("-i", "--input",
                     help="Indicate the path to a file containing a list of domain name or ip address",
@@ -258,21 +327,39 @@ parser.add_argument("iplist", nargs="*", default=[], help="List of the addresses
      address or a domain name")
 parser.add_argument("-o", "--output", help="Indicate a path to a file where to write the output in a csv format",
                     dest="output")
+parser.add_argument("-f", "--format", default="csv", dest="format", help="Indicate of format in which the output should\
+ be done if the -v argument is present, it overrides the -f argument")
 parser.add_argument("-v", "--verbose", action="store_true", dest="verbose")
 parser.add_argument("-p", "--port", dest="port", type=int, default=-1,
                     help="define the port on which the ssl test must be done")
-parser.add_argument("-mp", "--module_path", default=None, dest="module_path",
+parser.add_argument("-mp", "--module-path", default=None, dest="module_path",
                     help="Describe the path of the config module, if not specified it will lookup in it's current\
                               directory")
 parser.add_argument("-u", "--update", dest="update", default=None, help="Specifying an update for the config of the\
      program, must be followed by a path to a python file containing the update data see documentation in the code for \
                                                                             more information")
-
+parser.add_argument("-oit", "--on-unsecure-text", dest="on_unsecure_text", default="-i", help="Define the text to be\
+ printed if a protocol is available but should not be used, it might be added to the on-accepted-text")
+parser.add_argument("-oat", "--on-accepted-text", default="y", dest="on_accepted_text",
+                    help="define a text to be printed if the protocol is supported by the host")
+parser.add_argument("-ort", "--on-refused-text", default="n", dest="on_refused_text",
+                    help="Define a text to be printed if the protocol is refused by the host")
+parser.add_argument("-oic", "--on-unsecure-callback", dest="on_unsecure_callback",
+                    help="describe a command to be called of a shell program if an unsecured cipher is accepted by the\
+                     server the callback will receive 2 positional argument cipher and proto_name to help the\
+                      analysis or logging")
+parser.add_argument("-oac", "--on-accepted-callback", dest="on_accepted_callback",
+                    help="Same usage as -oic but if the cipher is accepted")
+parser.add_argument("-orc", "--on-refused-callback", dest="on_refused_callback",
+                    help="Same usage as -oic but if the cipher is refused")
+parser.add_argument("-ior", "--unsecure-on-refuse", dest="unsecure_on_refuse",
+                    help="A boolean argument that describe if the unsecure should be called on a refused cipher",
+                    default=False)
 if __name__ == "__main__":
     handler_dict = {
         "verbose": VerboseOutputClass,
-        "raw": OutputClass
+        "csv": OutputClass
     }
     parsed_input = parser.parse_args()
     config = Config(parsed_input)  # Generating the config instance
-    Prog(OutputClass, config)  # Starting the execution of the mapping
+    Prog(handler_dict, config)()  # running the program is equal to Prog.__init__(handler_dict,config).__call__()
