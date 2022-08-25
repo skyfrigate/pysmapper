@@ -264,7 +264,8 @@ class Prog:
         :return: str
         """
         if self.conf.on_unsecure_callback is not None:
-            text = subprocess.run(self.conf.on_unsecure_callback.split(" ")).stdout
+            text = subprocess.run(self.conf.on_unsecure_callback.split(" ") + [info["cipher-suite"]],
+                                  info["proto-name"]).stdout
         else:
             text = info["standard-text"] + self.conf.on_unsecure_text
         return text
