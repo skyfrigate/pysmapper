@@ -7,6 +7,7 @@ import os
 import types
 import argparse
 import abc
+import re
 
 
 class HandlerManager:
@@ -14,7 +15,8 @@ class HandlerManager:
     def __init__(self):
         self.dict_handler = {
             "verbose": VerboseOutputClass,
-            "csv": CsvOutputClass
+            "csv": CsvOutputClass,
+            "openmetrics-by-address": OpenMetricsByServer,
         }
 
     def __setitem__(self, key, value):
@@ -195,6 +197,49 @@ class VerboseOutputClass(OutputAbstract):
 
     def end_of_process(self):
         pass
+
+
+class OpenMetricsByServer(OutputAbstract):
+
+    format_regex = r'"(?=:)|(?<=, )"|(?<={)"'
+
+    def __init__(self, output, cipher_dict):
+        if output is not None:
+            self.path = output + os.sep + "output.txt"
+        else:
+            self.file = sys.stdout
+        self.per_address = {}
+
+    def new_address(self, proto_name, addr):
+        self.per_address[addr] = []
+
+    def new_proto(self, proto_name):
+        pass
+
+    def new_cipher(self, proto_name, addr, cipher, result):
+        self.per_address[addr].append({"protocol-version":proto_name,"name":addr,"cipher":cipher,"status":result})
+
+    def end_of_process(self):
+        if self.path is not None:
+            self.file = open(self.path,"a")
+        for address in self.per_address.keys():
+            for info_dict in self.per_address[address]:
+                str_to_write = address + self.dictionary_to_metrics(info_dict,address) + " NaN\n"
+                self.file.write(str_to_write)
+            self.file.write("\n")
+        if self.path is not None:
+            self.file.close()
+
+
+    def dictionary_to_metrics(self,dictionary,addr):
+        str_to_return = addr + str(dictionary)
+        str_to_return = str_to_return.replace("'","\"")
+        str_to_return = re.sub(self.format_regex,"",str_to_return)
+        str_to_return = str_to_return.replace(": ","=")
+        str_to_return = str_to_return.replace(",","")
+        return str_to_return
+
+
 
 
 class Config:

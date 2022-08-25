@@ -18,7 +18,9 @@ Define a path to a python file update in aim to update the SSL/TLS cipher list f
 #### -h | --help
 Give the help menu of the command line tool
 #### -f | --format
-Define a special format for the output, if the format is not handled format output will be csv
+Define a special format for the output, if the format is not handled format output will be csv.
+There is 3 native format supported, the verbose, the csv and the openmetrics sorted by address which can be called by
+passing argument `-f openmetrics-by-address` or `--format openmetrics-by-address`. 
 #### -ount | --on-unsecure-text
 Default text to be displayed and sent to the text handler if an unsecure cipher is detected. If not specified the
 character sent is `u`.
