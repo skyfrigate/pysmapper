@@ -6,6 +6,28 @@ import sys
 import os
 import types
 import argparse
+import abc
+
+
+class HandlerManager:
+
+    def __init__(self):
+        self.dict_handler = {
+            "verbose": VerboseOutputClass,
+            "csv": CsvOutputClass
+        }
+
+    def __setitem__(self, key, value):
+        if issubclass(value, OutputAbstract):
+            self.dict_handler[key] = value
+        else:
+            raise TypeError("value is not a subclass of OutputAbstract")
+
+    def __getitem__(self, item):
+        try:
+            return self.dict_handler[item]
+        except KeyError:
+            return self.dict_handler["csv"]
 
 
 def check(proto, cipher, rand_bytes, host, port):
@@ -53,70 +75,126 @@ def check(proto, cipher, rand_bytes, host, port):
             return 0
 
 
-class OutputClass:
+class OutputAbstract(abc.ABC):
 
-    def __init__(self, path, name, cipher_dict):
+    @abc.abstractmethod
+    def __init__(self, output, cipher_dict):
+        pass
+
+    @abc.abstractmethod
+    def new_proto(self, proto_name):
+        pass
+
+    @abc.abstractmethod
+    def new_address(self, proto_name, addr):
+        pass
+
+    @abc.abstractmethod
+    def new_cipher(self, proto_name, addr, cipher, result):
+        pass
+
+    @abc.abstractmethod
+    def end_of_process(self):
+        pass
+
+
+class CsvOutputClass(OutputAbstract):
+
+    def __init__(self, path, cipher_dict):
         self.path = path
-        if path is not None:
-            self.path = path + os.sep + name + ".csv"
-        else:
+        if path is None:
             self.file = sys.stdout
-            self.file.write("\n" + name)
+        self.cipher_dict = cipher_dict
+        self.first_line = "addr,"
+        for cipher_id in self.cipher_dict.keys():
+            self.first_line += "," + self.cipher_dict[cipher_id]["name"]
 
-    def __call__(self, content):
+    def new_proto(self, proto_name):
         if self.path is not None:
+            self.path = self.path + os.sep + proto_name + ".csv"
             file = open(self.path, "a")
-            file.write(content + "\n")
+            file.write(self.first_line)
             file.close()
         else:
-            self.file.write("\n" + content)
+            self.file.write(proto_name + "\n" + self.first_line)
+
+    def new_address(self, proto_name, addr):
+        if self.path is not None:
+            file = open(self.path, "a")
+            file.write("\n" + addr)
+            file.close()
+        else:
+            self.file.write("\n" + addr)
+
+    def new_cipher(self, proto_name, addr, cipher, result):
+        if self.path is not None:
+            file = open(self.path, "a")
+            file.write("," + result)
+            file.close()
+        else:
+            self.file.write("," + result)
+
+    def end_of_process(self):
+        pass
 
 
-class VerboseOutputClass:
+class VerboseOutputClass(OutputAbstract):
     """
     Class used to make a verbose output
     """
 
-    def __init__(self, path, name, cipher_dict):
+    def __init__(self, output, cipher_dict):
         self.cipher_dict = cipher_dict
-        self.path = path
-        self.name = name
-        if path is not None:
-            self.path = path + os.sep + name + ".txt"
-            file = open(self.path, "a")
-            file.write("Testing ciphers of " + name + " protocol :\n Protocol tested are :")
-            for cipher in list(self.cipher_dict.values):
-                file.write("\t" + cipher["name"])
-            file.close()
+        if output is not None:
+            self.path = output
         else:
             self.file = sys.stdout
-            self.file.write("Testing ciphers of " + name + " protocol :\n Protocol tested are : \n")
-            for cipher in list(self.cipher_dict.values()):
-                self.file.write("\t" + cipher["name"] + "\n")
 
-    def __call__(self, content):
-        if content.startswith("addr"):
-            pass
+    def new_proto(self, proto_name):
+        if self.path is not None:
+            self.path = self.path + os.sep + proto_name + ".txt"
+            file = open(self.path, "a")
+            file.write("Testing ciphers of " + proto_name + " protocol :\n Protocol tested are :")
+            file.write("Testing ciphers of " + proto_name + " protocol :\n Number of tested cipher is : \n" + str(
+                len(self.cipher_dict)))
+            file.close()
         else:
-            if self.path is not None:
-                file = open(self.path, "a")
-                content.replace("y", "enabled")
-                content.replace("n", "disabled")
-                list_content = content.split(",")
-                file.write("Testing ciphers on : " + list_content[0] + " : ")
-                for cipher_index in range(len(self.cipher_dict.values())):
-                    file.write("\t" + list(self.cipher_dict.values())[cipher_index]["name"] + " :\t" + list_content[
-                        cipher_index + 1])
-                file.close()
+            self.file.write("Testing ciphers of " + proto_name + " protocol :\n Number of tested cipher is : \n" + str(
+                len(self.cipher_dict)) + "\n")
+
+    def new_address(self, proto_name, addr):
+        if self.path is not None:
+            file = open(self.path, "a")
+            file.write("\n\tTesting cipher on " + addr + " :")
+            file.close()
+        else:
+            self.file.write("\tTesting cipher on " + addr + " :\n")
+
+    def new_cipher(self, proto_name, addr, cipher, result):
+        if self.path is not None:
+            file = open(self.path, "a")
+            if "-i" in result:
+                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure cipher")
+            elif result == "y":
+                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\tCipher supported")
+            elif result == "n":
+                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported")
             else:
-                content.replace("y", "enabled")
-                content.replace("n", "disabled")
-                list_content = content.split(",")
-                self.file.write("Testing ciphers on : " + list_content[0] + " : \n")
-                for cipher_index in range(len(self.cipher_dict.values())):
-                    self.file.write(
-                        "\t" + list(self.cipher_dict.values())[cipher_index]["name"] + " :\t" + list_content[
-                            cipher_index + 1] + "\n")
+                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\t Error")
+            file.close()
+        else:
+            if "-i" in result:
+                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure\
+                 cipher\n")
+            elif result == "y":
+                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n")
+            elif result == "n":
+                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n")
+            else:
+                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\t Error\n")
+
+    def end_of_process(self):
+        pass
 
 
 class Config:
@@ -217,6 +295,8 @@ class Prog:
         :param handler: dict
         :param conf: Config
         """
+        if handler.__class__.__name__ != "HandlerManager":
+            raise TypeError("Handler must be an instance of HandlerManager")
         self.handler = handler
         self.conf = conf
         if self.conf.verbose:
@@ -230,28 +310,22 @@ class Prog:
             self.mod = self.mod_loader.load_module()
 
     def __call__(self):
+        self.text_handler(self.conf.output, self.mod.cipher_suites)  # instantiating the text_handler
         for proto_name, proto_handshake in self.mod.handshake_pkts.items():
-            cipher_str_list = ""
-            for cipher in self.mod.cipher_suites.keys():
-                cipher_str_list += "," + self.mod.cipher_suites[cipher]["name"]
-            first_line = "addr" + cipher_str_list
-            self.text_handler(self.conf.output, proto_name, self.mod.cipher_suites)  # instantiating the text_handler
-            self.text_handler(first_line)  # start of the writing process
+            self.text_handler.new_proto(proto_name)  # start of the writing process
             for address in self.conf.list_address:
-                tested_cipher_line = address
+                self.text_handler.new_address(proto_name, address, self.conf)
                 for cipher in self.mod.cipher_suites.keys():
                     result = check(proto_handshake, cipher, self.mod.rand_bytes, address, self.conf.port)
                     str_result = self.result_handler(result, cipher, proto_name)
                     unsecure, reason = self.is_unsecure(cipher, proto_name)
                     if unsecure:
-                        if result == 0 and not self.conf.unsecure_on_refuse:
-                            pass
-                        else:
+                        if not (result <= 0 and not self.conf.unsecure_on_refuse):
                             str_result = self.on_unsecure(
                                 {"reason": reason, "standard-text": str_result, "proto-name": proto_name,
                                  "cipher-suite": cipher, "address": address})
-                    tested_cipher_line += str_result
-                self.text_handler(tested_cipher_line)
+                    self.text_handler.new_cipher(str_result)
+        self.text_handler.end_of_process()
 
     def on_unsecure(self, info):
         """
@@ -280,7 +354,7 @@ class Prog:
         :return: Any
         """
         if result == -1:
-            return ",e"
+            return "e"
         elif result == 0:
             if self.conf.on_refused_text is not None:
                 return subprocess.run(self.conf.on_refused_callback.split(" ") + [cipher, proto_name],
@@ -323,7 +397,7 @@ parser = argparse.ArgumentParser(
                                       much time")
 parser.add_argument("-i", "--input",
                     help="Indicate the path to a file containing a list of domain name or ip address",
-                    dest="input", default=None)
+                    dest="input")
 parser.add_argument("iplist", nargs="*", default=[], help="List of the addresses to target. It can be an ipv4\
      address or a domain name")
 parser.add_argument("-o", "--output", help="Indicate a path to a file where to write the output in a csv format",
@@ -333,19 +407,19 @@ parser.add_argument("-f", "--format", default="csv", dest="format", help="Indica
 parser.add_argument("-v", "--verbose", action="store_true", dest="verbose")
 parser.add_argument("-p", "--port", dest="port", type=int, default=-1,
                     help="define the port on which the ssl test must be done")
-parser.add_argument("-mp", "--module-path", default=None, dest="module_path",
+parser.add_argument("-mp", "--module-path", dest="module_path",
                     help="Describe the path of the config module, if not specified it will lookup in it's current\
                               directory")
-parser.add_argument("-u", "--update", dest="update", default=None, help="Specifying an update for the config of the\
+parser.add_argument("-u", "--update", dest="update", help="Specifying an update for the config of the\
      program, must be followed by a path to a python file containing the update data see documentation in the code for \
                                                                             more information")
-parser.add_argument("-oit", "--on-unsecure-text", dest="on_unsecure_text", default="-i", help="Define the text to be\
+parser.add_argument("-ount", "--on-unsecure-text", dest="on_unsecure_text", default="-i", help="Define the text to be\
  printed if a protocol is available but should not be used, it might be added to the on-accepted-text")
 parser.add_argument("-oat", "--on-accepted-text", default="y", dest="on_accepted_text",
                     help="define a text to be printed if the protocol is supported by the host")
 parser.add_argument("-ort", "--on-refused-text", default="n", dest="on_refused_text",
                     help="Define a text to be printed if the protocol is refused by the host")
-parser.add_argument("-oic", "--on-unsecure-callback", dest="on_unsecure_callback",
+parser.add_argument("-ounc", "--on-unsecure-callback", dest="on_unsecure_callback",
                     help="describe a command to be called of a shell program if an unsecured cipher is accepted by the\
                      server the callback will receive 2 positional argument cipher and proto_name to help the\
                       analysis or logging")
@@ -353,14 +427,10 @@ parser.add_argument("-oac", "--on-accepted-callback", dest="on_accepted_callback
                     help="Same usage as -oic but if the cipher is accepted")
 parser.add_argument("-orc", "--on-refused-callback", dest="on_refused_callback",
                     help="Same usage as -oic but if the cipher is refused")
-parser.add_argument("-ior", "--unsecure-on-refuse", dest="unsecure_on_refuse",
+parser.add_argument("-uor", "--unsecure-on-refuse", dest="unsecure_on_refuse",
                     help="A boolean argument that describe if the unsecure should be called on a refused cipher",
                     default=False)
 if __name__ == "__main__":
-    handler_dict = {
-        "verbose": VerboseOutputClass,
-        "csv": OutputClass
-    }
     parsed_input = parser.parse_args()
     config = Config(parsed_input)  # Generating the config instance
-    Prog(handler_dict, config)()  # running the program is equal to Prog.__init__(handler_dict,config).__call__()
+    Prog(HandlerManager(), config)()  # running the program is equal to Prog.__init__(handler_dict,config).__call__()

@@ -17,6 +17,13 @@ Define a specific path to the module path containing the program config, by defa
 Define a path to a python file update in aim to update the SSL/TLS cipher list for new versions
 #### -h | --help
 Give the help menu of the command line tool
+#### -f | --format
+Define a special format for the output, if the format is not handled format output will be csv
+#### -ount | --on-unsecure-text
+Default text to be displayed and sent to the text handler if an unsecure cipher is detected. If not specified the
+character sent is `u`.
+#### -oat | --on-accepted-text
+Default text to be sent to the text handler if the cipher is accepted. If not specified the character is `y`
 ### Updating pysmapper
 To update psymapper you need to execute `pysmapper.py --update <config file>` where config file is a path to a python.
-It is the same as describe just above. However the python update file need some specific element to work well.
+It is the same as describe just above. However, the python update file need some specific element to work well.
