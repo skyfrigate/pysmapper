@@ -8,7 +8,8 @@ Here are the command line option and descritption
 Défini si la commande doit afficher les résultats de manière facilement lisible
 #### -i | --input
 An option that describe a path to file a file which will be used to indicate hosts. The file must list the addresses
-separated by carriage return. Addresses can be IPv4 addresses or domain name
+separated by carriage return. Addresses can be IPv4 addresses or domain name. The path can be a standard os path,a http\
+https URL, a ftp/ftps URL, a file URL or a data URL
 #### -p | --port
 An option that describe a specific port to check the ciphers on, by default it is set to 443 which is the HTTPS tcp port
 #### -mp | --module_path
@@ -26,6 +27,10 @@ Default text to be displayed and sent to the text handler if an unsecure cipher 
 character sent is `u`.
 #### -oat | --on-accepted-text
 Default text to be sent to the text handler if the cipher is accepted. If not specified the character is `y`
+#### -pd | --port-detection
+Enable the port detection on the program. So the program will try to find port using TLS/SSL. If -port is present -pd is
+ignored. Using -pd might make the program run slower as it will try to establish 11 tcp connection at each try. It will
+stop his research at the first available port found. 
 ### Updating pysmapper
 To update psymapper you need to execute `pysmapper.py --update <config file>` where config file is a path to a python.
 It is the same as describe just above. However, the python update file need some specific element to work well.

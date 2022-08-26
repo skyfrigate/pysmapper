@@ -1123,3 +1123,5 @@ accept_cipher = ["TLS_AES_256_GCM_SHA384",
                  "TLS_DHE_PSK_WITH_ARIA_128_CBC_SHA256"]
 
 accept_proto = ["TLS v1.2", "TLS v1.3"]
+
+potential_ports = [443, 636, 989, 990, 993, 995, 465, 992, 563, 994, 585]

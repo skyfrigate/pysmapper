@@ -8,6 +8,72 @@ import types
 import argparse
 import abc
 import re
+import os.path
+import urllib.request
+
+
+class FileAbstractionClass:
+
+    def __init__(self, filename=None):
+        self.filename = filename
+        if self.filename is not None:
+            if ":" in filename:
+                self.is_url = True
+            else:
+                self.is_url = False
+                file = open(filename, "a")  # Creating the file if it does not already exist
+                file.close()
+        else:
+            self.is_url = False
+        self.str_to_flush = ""
+        self.mimetype = None
+
+    def write(self, content, mimetype=None):
+        if os.path.exists(self.filename):
+            file = open(self.filename, "a")
+            file.write(content)
+            file.close()
+        elif self.is_url:
+            if mimetype is None:
+                urllib.request.urlopen(urllib.request.Request(self.filename, content))
+            else:
+                urllib.request.urlopen(urllib.request.Request(self.filename, content, {"Content-Type": mimetype}))
+        else:
+            sys.stdout.write(content)
+
+    def bwrite(self, content, mimetype=None):
+        self.str_to_flush += content
+        self.mimetype = mimetype
+
+    def flush(self):
+        self.write(self.str_to_flush, self.mimetype)
+        self.str_to_flush = ""
+
+    def read(self):
+        if os.path.exists(self.filename):
+            file = open(self.filename, "r")
+            text = file.read()
+            file.close()
+            return text
+        elif ":" in self.filename:
+            response = urllib.request.urlopen(self.filename)
+            text = response.read()
+            return text
+        else:
+            raise FileNotFoundError("Filename is neither a file or an URL")
+
+    def readlines(self):
+        if os.path.exists(self.filename):
+            file = open(self.filename, "r")
+            text = file.readlines()
+            file.close()
+            return text
+        elif ":" in self.filename:
+            response = urllib.request.urlopen(self.filename)
+            text = response.readlines()
+            return text
+        else:
+            raise FileNotFoundError("Filename is neither a file or an URL")
 
 
 class HandlerManager:
@@ -104,8 +170,6 @@ class CsvOutputClass(OutputAbstract):
 
     def __init__(self, path, cipher_dict):
         self.path = path
-        if path is None:
-            self.file = sys.stdout
         self.cipher_dict = cipher_dict
         self.first_line = "addr,"
         for cipher_id in self.cipher_dict.keys():
@@ -113,31 +177,22 @@ class CsvOutputClass(OutputAbstract):
 
     def new_proto(self, proto_name):
         if self.path is not None:
-            self.path = self.path + os.sep + proto_name + ".csv"
-            file = open(self.path, "a")
-            file.write(self.first_line)
-            file.close()
+            self.file = FileAbstractionClass(self.path + os.sep + proto_name + ".csv")
+            self.file.bwrite(self.first_line,"text/csv")
         else:
-            self.file.write(proto_name + "\n" + self.first_line)
+            self.file = FileAbstractionClass(self.path)
+            self.file.bwrite(proto_name + "\n" + self.first_line,"text/csv")
+        if proto_name != "SSL v2.0":
+            self.file.flush()
 
     def new_address(self, proto_name, addr):
-        if self.path is not None:
-            file = open(self.path, "a")
-            file.write("\n" + addr)
-            file.close()
-        else:
-            self.file.write("\n" + addr)
+        self.file.bwrite("\n" + addr,"text/csv")
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        if self.path is not None:
-            file = open(self.path, "a")
-            file.write("," + result)
-            file.close()
-        else:
-            self.file.write("," + result)
+        self.file.bwrite("," + result,"text/csv")
 
     def end_of_process(self):
-        pass
+        self.file.flush()
 
 
 class VerboseOutputClass(OutputAbstract):
@@ -147,67 +202,51 @@ class VerboseOutputClass(OutputAbstract):
 
     def __init__(self, output, cipher_dict):
         self.cipher_dict = cipher_dict
-        if output is not None:
-            self.path = output
-        else:
-            self.file = sys.stdout
+        self.path = output
+        if output is None:
+            self.frequent_flush = True
 
     def new_proto(self, proto_name):
         if self.path is not None:
             self.path = self.path + os.sep + proto_name + ".txt"
-            file = open(self.path, "a")
-            file.write("Testing ciphers of " + proto_name + " protocol :\n Protocol tested are :")
-            file.write("Testing ciphers of " + proto_name + " protocol :\n Number of tested cipher is : \n" + str(
-                len(self.cipher_dict)))
-            file.close()
         else:
-            self.file.write("Testing ciphers of " + proto_name + " protocol :\n Number of tested cipher is : \n" + str(
-                len(self.cipher_dict)) + "\n")
+            self.file = FileAbstractionClass(self.path)
+        self.file.bwrite("Testing ciphers of " + proto_name + " protocol :\n Number of tested cipher is : \n" + str(
+            len(self.cipher_dict)) + "\n")
+        if self.frequent_flush:
+            self.file.flush()
 
     def new_address(self, proto_name, addr):
-        if self.path is not None:
-            file = open(self.path, "a")
-            file.write("\n\tTesting cipher on " + addr + " :")
-            file.close()
-        else:
-            self.file.write("\tTesting cipher on " + addr + " :\n")
+        self.file.bwrite("\tTesting cipher on " + addr + " :\n")
+        if self.frequent_flush:
+            self.file.flush()
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        if self.path is not None:
-            file = open(self.path, "a")
-            if "-i" in result:
-                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure cipher")
-            elif result == "y":
-                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\tCipher supported")
-            elif result == "n":
-                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported")
-            else:
-                file.write("\n\tTesting " + cipher + " cipher suite :\n\t\t Error")
-            file.close()
-        else:
-            if "-i" in result:
-                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure\
+        if "-i" in result:
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure\
                  cipher\n")
-            elif result == "y":
-                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n")
-            elif result == "n":
-                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n")
-            else:
-                self.file.write("\tTesting " + cipher + " cipher suite :\n\t\t Error\n")
+        elif result == "y":
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n")
+        elif result == "n":
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n")
+        else:
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\t Error\n")
+        if self.frequent_flush:
+            self.file.flush()
 
     def end_of_process(self):
-        pass
+        self.file.flush()
 
 
 class OpenMetricsByServer(OutputAbstract):
-
     format_regex = r'"(?=:)|(?<=, )"|(?<={)"'
 
     def __init__(self, output, cipher_dict):
         if output is not None:
             self.path = output + os.sep + "output.txt"
+            self.file = FileAbstractionClass(self.path)
         else:
-            self.file = sys.stdout
+            self.file = FileAbstractionClass(self.path)
         self.per_address = {}
 
     def new_address(self, proto_name, addr):
@@ -217,29 +256,24 @@ class OpenMetricsByServer(OutputAbstract):
         pass
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        self.per_address[addr].append({"protocol-version":proto_name,"name":addr,"cipher":cipher,"status":result})
+        self.per_address[addr].append(
+            {"protocol-version": proto_name, "name": addr, "cipher": cipher, "status": result})
 
     def end_of_process(self):
-        if self.path is not None:
-            self.file = open(self.path,"a")
         for address in self.per_address.keys():
             for info_dict in self.per_address[address]:
-                str_to_write = address + self.dictionary_to_metrics(info_dict,address) + " NaN\n"
-                self.file.write(str_to_write)
-            self.file.write("\n")
-        if self.path is not None:
-            self.file.close()
+                str_to_write = address + self.dictionary_to_metrics(info_dict, address) + " NaN\n"
+                self.file.bwrite(str_to_write,"application/openmetrics-text")
+            self.file.bwrite("\n","application/openmetrics-text")
+        self.file.flush()
 
-
-    def dictionary_to_metrics(self,dictionary,addr):
+    def dictionary_to_metrics(self, dictionary, addr):
         str_to_return = addr + str(dictionary)
-        str_to_return = str_to_return.replace("'","\"")
-        str_to_return = re.sub(self.format_regex,"",str_to_return)
-        str_to_return = str_to_return.replace(": ","=")
-        str_to_return = str_to_return.replace(",","")
+        str_to_return = str_to_return.replace("'", "\"")
+        str_to_return = re.sub(self.format_regex, "", str_to_return)
+        str_to_return = str_to_return.replace(": ", "=")
+        str_to_return = str_to_return.replace(",", "")
         return str_to_return
-
-
 
 
 class Config:
@@ -250,16 +284,17 @@ class Config:
     def __init__(self, parsed_args):
         self.list_address = parsed_args.iplist
         if parsed_args.input is not None:
-            with open(parsed_args.input) as file:
-                add_ip_list = file.readlines()
-                file.close()
+            file = FileAbstractionClass(parsed_args.input)
+            add_ip_list = file.readlines()
             self.list_address += add_ip_list
         self.input = parsed_args.input
         self.verbose = parsed_args.verbose
         self.output = parsed_args.output
-        if parsed_args.port != -1:
+        if parsed_args.port is not None:
             self.port = parsed_args.port
         else:
+            if parsed_args.port_detection is not None:
+                self.port_detection = parsed_args.port_detection
             self.port = 443
         self.module_path = parsed_args.module_path
         self.update = parsed_args.update
@@ -271,6 +306,22 @@ class Config:
         self.on_unsecure_callback = parsed_args.on_unsecure_callback
         self.on_refused_callback = parsed_args.on_refused_callback
         self.on_accepted_callback = parsed_args.on_accepted_callback
+
+    def detect_port(self, addr, port_list):
+        if self.port_detection:
+            for port in port_list:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    sock.connect((addr, port))
+                except ConnectionRefusedError:
+                    pass
+                else:
+                    sock.shutdown(socket.SHUT_RDWR)
+                    sock.close()
+                    return port
+            raise ConnectionError("Not port available on " + addr)
+        else:
+            return self.port
 
 
 class ModLoader:
@@ -320,7 +371,9 @@ class ModLoader:
             old_conf.cipher_suites.update(new_conf["cipher_suites"])
         str_conf = "handshake_pkts = " + str(old_conf.handshake_pkts) + "\n\ncipher_suites = " + str(
             old_conf.cipher_suites) + "\n\nrand_bytes = " + str(old_conf.rand_bytes) + "\n\naccept_cipher = " + str(
-            old_conf.accept_cipher) + "\n\naccept_proto = " + str(old_conf.accept_proto)
+            old_conf.accept_cipher) + "\n\naccept_proto = " + str(
+            old_conf.accept_proto) + "\n\npotential_ports = " + str(
+            old_conf.potential_ports)
         file = open(self.path, "w")
         file.write(str_conf)
         file.close()
@@ -360,15 +413,16 @@ class Prog:
             self.text_handler.new_proto(proto_name)  # start of the writing process
             for address in self.conf.list_address:
                 self.text_handler.new_address(proto_name, address, self.conf)
+                self.port = self.conf.detect_port(address, self.mod.potential_ports)
                 for cipher in self.mod.cipher_suites.keys():
-                    result = check(proto_handshake, cipher, self.mod.rand_bytes, address, self.conf.port)
+                    result = check(proto_handshake, cipher, self.mod.rand_bytes, address,self.port)
                     str_result = self.result_handler(result, cipher, proto_name)
                     unsecure, reason = self.is_unsecure(cipher, proto_name)
                     if unsecure:
                         if not (result <= 0 and not self.conf.unsecure_on_refuse):
                             str_result = self.on_unsecure(
                                 {"reason": reason, "standard-text": str_result, "proto-name": proto_name,
-                                 "cipher-suite": cipher, "address": address})
+                                 "cipher-suite": cipher, "address": address,"port":self.port})
                     self.text_handler.new_cipher(str_result)
         self.text_handler.end_of_process()
 
@@ -450,7 +504,7 @@ parser.add_argument("-o", "--output", help="Indicate a path to a file where to w
 parser.add_argument("-f", "--format", default="csv", dest="format", help="Indicate of format in which the output should\
  be done if the -v argument is present, it overrides the -f argument")
 parser.add_argument("-v", "--verbose", action="store_true", dest="verbose")
-parser.add_argument("-p", "--port", dest="port", type=int, default=-1,
+parser.add_argument("-p", "--port", dest="port", type=int,
                     help="define the port on which the ssl test must be done")
 parser.add_argument("-mp", "--module-path", dest="module_path",
                     help="Describe the path of the config module, if not specified it will lookup in it's current\
@@ -475,6 +529,8 @@ parser.add_argument("-orc", "--on-refused-callback", dest="on_refused_callback",
 parser.add_argument("-uor", "--unsecure-on-refuse", dest="unsecure_on_refuse",
                     help="A boolean argument that describe if the unsecure should be called on a refused cipher",
                     default=False)
+parser.add_argument("-pd", "--port-detection", action="store_true", dest="port_detection", help="If specified will try to\
+                             find an open TLS/SSL port on the address. If -p is specified -pd will ve ignored")
 if __name__ == "__main__":
     parsed_input = parser.parse_args()
     config = Config(parsed_input)  # Generating the config instance
