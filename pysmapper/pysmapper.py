@@ -10,6 +10,9 @@ import abc
 import re
 import os.path
 import urllib.request
+import json.encoder
+import xml.etree.ElementTree
+import xml.dom.minidom
 
 
 class FileAbstractionClass:
@@ -82,7 +85,7 @@ class HandlerManager:
         self.dict_handler = {
             "verbose": VerboseOutputClass,
             "csv": CsvOutputClass,
-            "openmetrics-by-address": OpenMetricsByServer,
+            "openmetrics-by-address": OpenMetrics,
         }
 
     def __setitem__(self, key, value):
@@ -92,10 +95,41 @@ class HandlerManager:
             raise TypeError("value is not a subclass of OutputAbstract")
 
     def __getitem__(self, item):
+        name, sorting, options = self.parse_handler_info(item)
         try:
-            return self.dict_handler[item]
+            return self.dict_handler[name], sorting, options
         except KeyError:
-            return self.dict_handler["csv"]
+            return self.dict_handler["csv"], sorting, options
+
+    def parse_handler_info(self,item):
+        if "-by-" in item:
+            name, sorting_and_options = item.split("-by-")
+            if "#" in sorting_and_options:
+                sorting, options = sorting_and_options.split("#")
+                options = self.parse_options(options)
+                return name, sorting, options
+            else:
+                return name, sorting_and_options, None
+        else:
+            if "#" in item:
+                name, options = item.split("#")
+                options = self.parse_options(options)
+                return name, None, options
+            else:
+                return item, None, None
+
+
+    def parse_options(self, option_str):
+        list_options = option_str.split("&")
+        for options_id in range(len(list_options)):
+            list_options[options_id] = list_options[options_id].split("=")
+        return_dict = {}
+        for option_key, option_value in list_options:
+            return_dict[option_key] = option_value
+        return return_dict
+
+
+
 
 
 def check(proto, cipher, rand_bytes, host, port):
@@ -146,7 +180,7 @@ def check(proto, cipher, rand_bytes, host, port):
 class OutputAbstract(abc.ABC):
 
     @abc.abstractmethod
-    def __init__(self, output, cipher_dict):
+    def __init__(self, output, cipher_dict, **options):
         pass
 
     @abc.abstractmethod
@@ -154,7 +188,7 @@ class OutputAbstract(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def new_address(self, proto_name, addr):
+    def new_address(self, proto_name, addr,port):
         pass
 
     @abc.abstractmethod
@@ -168,7 +202,7 @@ class OutputAbstract(abc.ABC):
 
 class CsvOutputClass(OutputAbstract):
 
-    def __init__(self, path, cipher_dict):
+    def __init__(self, path, cipher_dict, **options):
         self.path = path
         self.cipher_dict = cipher_dict
         self.first_line = "addr,"
@@ -185,7 +219,7 @@ class CsvOutputClass(OutputAbstract):
         if proto_name != "SSL v2.0":
             self.file.flush()
 
-    def new_address(self, proto_name, addr):
+    def new_address(self, proto_name, addr,port):
         self.file.bwrite("\n" + addr,"text/csv")
 
     def new_cipher(self, proto_name, addr, cipher, result):
@@ -195,12 +229,45 @@ class CsvOutputClass(OutputAbstract):
         self.file.flush()
 
 
+class XMLOutputClass(OutputAbstract):
+
+    def __init__(self, output, cipher_dict, **options):
+        self.cipher_dict = cipher_dict
+        self.path = output
+        self.root = xml.etree.ElementTree.Element("result")
+        if self.path is None:
+            self.file = FileAbstractionClass()
+        else:
+            if options.get("name") is not None:
+                self.file = FileAbstractionClass(self.path + os.sep + options["name"] +".xml")
+            else:
+                self.file = FileAbstractionClass(self.path + os.sep + "output.xml")
+
+    def new_proto(self, proto_name):
+        self.last_proto = xml.etree.ElementTree.Element("protocol",name=proto_name)
+        self.root.append(self.last_proto)
+
+    def new_address(self, proto_name, addr,port):
+        self.last_address = xml.etree.ElementTree.Element("address", name=addr, port=port)
+        self.last_proto.append(self.last_address)
+
+    def new_cipher(self, proto_name, addr, cipher, result):
+        if "-u" in result:
+            self.last_address.append(xml.etree.ElementTree.Element("cipher", name=cipher, status=result,unsecure="true"))
+        else:
+            self.last_address.append(xml.etree.ElementTree.Element("cipher",name=cipher, status=result ,unsecure="false"))
+
+    def end_of_process(self):
+        xml_minidom = xml.dom.minidom.parseString(xml.etree.ElementTree.tostring(self.root,"unicode",xml_declaration=True))
+        self.file.write(xml_minidom.toprettyxml())
+
+
 class VerboseOutputClass(OutputAbstract):
     """
     Class used to make a verbose output
     """
 
-    def __init__(self, output, cipher_dict):
+    def __init__(self, output, cipher_dict, **options):
         self.cipher_dict = cipher_dict
         self.path = output
         if output is None:
@@ -216,7 +283,7 @@ class VerboseOutputClass(OutputAbstract):
         if self.frequent_flush:
             self.file.flush()
 
-    def new_address(self, proto_name, addr):
+    def new_address(self, proto_name, addr,port):
         self.file.bwrite("\tTesting cipher on " + addr + " :\n")
         if self.frequent_flush:
             self.file.flush()
@@ -238,10 +305,12 @@ class VerboseOutputClass(OutputAbstract):
         self.file.flush()
 
 
-class OpenMetricsByServer(OutputAbstract):
+class OpenMetrics(OutputAbstract):
     format_regex = r'"(?=:)|(?<=, )"|(?<={)"'
 
-    def __init__(self, output, cipher_dict):
+    def __init__(self, output, cipher_dict, **options):
+        if options.get("sorting") != "address":
+            raise NotImplementedError("Openmetrics doesn't support any sorting else than by address")
         if output is not None:
             self.path = output + os.sep + "output.txt"
             self.file = FileAbstractionClass(self.path)
@@ -249,7 +318,7 @@ class OpenMetricsByServer(OutputAbstract):
             self.file = FileAbstractionClass(self.path)
         self.per_address = {}
 
-    def new_address(self, proto_name, addr):
+    def new_address(self, proto_name, addr,port):
         self.per_address[addr] = []
 
     def new_proto(self, proto_name):
@@ -261,8 +330,11 @@ class OpenMetricsByServer(OutputAbstract):
 
     def end_of_process(self):
         for address in self.per_address.keys():
+            self.file.bwrite("#TYPE " + address + " info\n","application/openmetrics-text")
+            self.file.bwrite("#HELP " + address + " Analysis of the " + address + "'s ciphers\n",
+                             "application/openmetrics-text")
             for info_dict in self.per_address[address]:
-                str_to_write = address + self.dictionary_to_metrics(info_dict, address) + " NaN\n"
+                str_to_write = address + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
                 self.file.bwrite(str_to_write,"application/openmetrics-text")
             self.file.bwrite("\n","application/openmetrics-text")
         self.file.flush()
@@ -398,9 +470,9 @@ class Prog:
         self.handler = handler
         self.conf = conf
         if self.conf.verbose:
-            self.text_handler = self.handler["verbose"]
+            self.text_handler, self.sorting,self.options = self.handler["verbose"]
         else:
-            self.text_handler = self.handler[self.conf.format]
+            self.text_handler, self.sorting,self.options = self.handler[self.conf.format]
         self.mod_loader = ModLoader(self.conf.module_path)
         if self.conf.update is not None:
             self.mod = self.mod_loader.update_config(self.conf.update)
@@ -408,7 +480,7 @@ class Prog:
             self.mod = self.mod_loader.load_module()
 
     def __call__(self):
-        self.text_handler(self.conf.output, self.mod.cipher_suites)  # instantiating the text_handler
+        self.text_handler(self.conf.output, self.mod.cipher_suites,sorting=self.sorting,**self.options)  # instantiating the text_handler
         for proto_name, proto_handshake in self.mod.handshake_pkts.items():
             self.text_handler.new_proto(proto_name)  # start of the writing process
             for address in self.conf.list_address:
