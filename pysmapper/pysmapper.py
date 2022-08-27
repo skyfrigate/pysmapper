@@ -198,6 +198,36 @@ class OutputAbstract(abc.ABC):
     @abc.abstractmethod
     def end_of_process(self):
         pass
+    @staticmethod
+    def select_file(path,name, extension):
+        if path is None:
+            return FileAbstractionClass()
+        elif os.path.exists(path):
+            if name is None:
+                return FileAbstractionClass(path + os.sep + "output" + extension)
+            return FileAbstractionClass(path + os.sep + name + extension)
+        else:
+            return FileAbstractionClass(path)
+
+class JSONOutputClass(OutputAbstract):
+
+    def __init__(self, path, cipher_dict, **options):
+        self.path = path
+        self.cipher_dict = cipher_dict
+        self.file = self.select_file(path,options.get("name"),".json")
+        self.tree = []
+
+    def new_proto(self, proto_name):
+        self.tree.append({"protocol":proto_name,"addresses":[]})
+
+    def new_address(self, proto_name, addr,port):
+        self.tree[-1]["addresses"].append({"address":addr,"port":port,"ciphers":[]})
+
+    def new_cipher(self, proto_name, addr, cipher, result):
+        self.tree[-1]["addresses"][-1]["ciphers"].append({"cipher":cipher,"status":result})
+
+    def end_of_process(self):
+        self.file.write(json.dumps(self.tree,indent=1),"application/json")
 
 
 class CsvOutputClass(OutputAbstract):
@@ -210,11 +240,10 @@ class CsvOutputClass(OutputAbstract):
             self.first_line += "," + self.cipher_dict[cipher_id]["name"]
 
     def new_proto(self, proto_name):
+        self.file = self.select_file(self.path,proto_name,".csv")
         if self.path is not None:
-            self.file = FileAbstractionClass(self.path + os.sep + proto_name + ".csv")
             self.file.bwrite(self.first_line,"text/csv")
         else:
-            self.file = FileAbstractionClass(self.path)
             self.file.bwrite(proto_name + "\n" + self.first_line,"text/csv")
         if proto_name != "SSL v2.0":
             self.file.flush()
@@ -235,13 +264,7 @@ class XMLOutputClass(OutputAbstract):
         self.cipher_dict = cipher_dict
         self.path = output
         self.root = xml.etree.ElementTree.Element("result")
-        if self.path is None:
-            self.file = FileAbstractionClass()
-        else:
-            if options.get("name") is not None:
-                self.file = FileAbstractionClass(self.path + os.sep + options["name"] +".xml")
-            else:
-                self.file = FileAbstractionClass(self.path + os.sep + "output.xml")
+        self.file = self.select_file(self.path, options.get("name"), ".xml")
 
     def new_proto(self, proto_name):
         self.last_proto = xml.etree.ElementTree.Element("protocol",name=proto_name)
@@ -259,7 +282,7 @@ class XMLOutputClass(OutputAbstract):
 
     def end_of_process(self):
         xml_minidom = xml.dom.minidom.parseString(xml.etree.ElementTree.tostring(self.root,"unicode",xml_declaration=True))
-        self.file.write(xml_minidom.toprettyxml())
+        self.file.write(xml_minidom.toprettyxml(),"application/xml")
 
 
 class VerboseOutputClass(OutputAbstract):
@@ -272,32 +295,29 @@ class VerboseOutputClass(OutputAbstract):
         self.path = output
         if output is None:
             self.frequent_flush = True
+        self.file = self.select_file(self.path,options.get("name"),".txt")
 
     def new_proto(self, proto_name):
-        if self.path is not None:
-            self.path = self.path + os.sep + proto_name + ".txt"
-        else:
-            self.file = FileAbstractionClass(self.path)
         self.file.bwrite("Testing ciphers of " + proto_name + " protocol :\n Number of tested cipher is : \n" + str(
-            len(self.cipher_dict)) + "\n")
+            len(self.cipher_dict)) + "\n","text/plain")
         if self.frequent_flush:
             self.file.flush()
 
     def new_address(self, proto_name, addr,port):
-        self.file.bwrite("\tTesting cipher on " + addr + " :\n")
+        self.file.bwrite("\tTesting cipher on " + addr + " :\n","text/plain")
         if self.frequent_flush:
             self.file.flush()
 
     def new_cipher(self, proto_name, addr, cipher, result):
         if "-i" in result:
             self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure\
-                 cipher\n")
+                 cipher\n","text/plain")
         elif result == "y":
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n")
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n","text/plain")
         elif result == "n":
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n")
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n","text/plain")
         else:
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\t Error\n")
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\t Error\n","text/plain")
         if self.frequent_flush:
             self.file.flush()
 
@@ -311,11 +331,7 @@ class OpenMetrics(OutputAbstract):
     def __init__(self, output, cipher_dict, **options):
         if options.get("sorting") != "address":
             raise NotImplementedError("Openmetrics doesn't support any sorting else than by address")
-        if output is not None:
-            self.path = output + os.sep + "output.txt"
-            self.file = FileAbstractionClass(self.path)
-        else:
-            self.file = FileAbstractionClass(self.path)
+        self.file = self.select_file(output,options.get("name"),".txt")
         self.per_address = {}
 
     def new_address(self, proto_name, addr,port):
@@ -330,13 +346,13 @@ class OpenMetrics(OutputAbstract):
 
     def end_of_process(self):
         for address in self.per_address.keys():
-            self.file.bwrite("#TYPE " + address + " info\n","application/openmetrics-text")
+            self.file.bwrite("#TYPE " + address + " info\n","application/openmetrics-text; version=1.0.0; charset=utf-8")
             self.file.bwrite("#HELP " + address + " Analysis of the " + address + "'s ciphers\n",
-                             "application/openmetrics-text")
+                             "application/openmetrics-text; version=1.0.0; charset=utf-8t")
             for info_dict in self.per_address[address]:
                 str_to_write = address + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
-                self.file.bwrite(str_to_write,"application/openmetrics-text")
-            self.file.bwrite("\n","application/openmetrics-text")
+                self.file.bwrite(str_to_write,"application/openmetrics-text; version=1.0.0; charset=utf-8")
+            self.file.bwrite("\n","application/openmetrics-text; version=1.0.0; charset=utf-8")
         self.file.flush()
 
     def dictionary_to_metrics(self, dictionary, addr):

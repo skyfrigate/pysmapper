@@ -34,3 +34,27 @@ stop his research at the first available port found.
 ### Updating pysmapper
 To update psymapper you need to execute `pysmapper.py --update <config file>` where config file is a path to a python.
 It is the same as describe just above. However, the python update file need some specific element to work well.
+### The program output
+#### The output format
+Pysmapper natively support some format such as:
+* csv
+* XML
+* JSON
+* OpenMetrics
+* A verbose output
+You can specify the output format through the `-f` options and specifying the name of the format in lowercase
+#### The output parameter
+To have a more flexible output and to not mix up with common argument you can give specific argument to the text 
+formatter by following a simple pattern in the `-f` options.
+The pattern is the following :
+`-f <output format>-by-<sorting>#<key-value parameter linked by a "=" and separated by a "&" >`
+An example would look like this :
+`pysmapper -f openmetrics-by-address#name=data&type=info`
+#### The output media
+Pysmapper will natively allow you to select an output media for different uses. it can be a regular directory, an http 
+or ftp URL.
+You just have to specify the URL at the `-o` as for a regular directory
+> The mimetype will be automatically selected for a http request
+
+If no `-o` option is selected, the output will be the standard one
+## Building over pysmapper
