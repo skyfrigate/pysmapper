@@ -16,8 +16,17 @@ import xml.dom.minidom
 
 
 class FileAbstractionClass:
+    """
+    An abstraction class to a file, it generalise the function used to send an http, ftp request, a standard file or the
+    standard output
+    """
 
     def __init__(self, filename=None):
+        """
+        Initialization of the class, filename must be either a valid URL, a path to a directory or None for the standard
+        output
+        :param filename:
+        """
         self.filename = filename
         if self.filename is not None:
             if ":" in filename:
@@ -45,10 +54,20 @@ class FileAbstractionClass:
             sys.stdout.write(content)
 
     def bwrite(self, content, mimetype=None):
+        """
+        Write the content in a buffer instead of directly write it
+        :param content:
+        :param mimetype:
+        :return:
+        """
         self.str_to_flush += content
         self.mimetype = mimetype
 
     def flush(self):
+        """
+        Write the buffered string, must only be called if bwrite was called earlier
+        :return:
+        """
         self.write(self.str_to_flush, self.mimetype)
         self.str_to_flush = ""
 
@@ -66,6 +85,10 @@ class FileAbstractionClass:
             raise FileNotFoundError("Filename is neither a file or an URL")
 
     def readlines(self):
+        """
+        Read all the lines and return it as a String, useful to read specific file input
+        :return:
+        """
         if os.path.exists(self.filename):
             file = open(self.filename, "r")
             text = file.readlines()
@@ -85,7 +108,9 @@ class HandlerManager:
         self.dict_handler = {
             "verbose": VerboseOutputClass,
             "csv": CsvOutputClass,
-            "openmetrics-by-address": OpenMetrics,
+            "openmetrics": OpenMetrics,
+            "xml": XMLOutputClass,
+            "json": JSONOutputClass
         }
 
     def __setitem__(self, key, value):
@@ -101,7 +126,7 @@ class HandlerManager:
         except KeyError:
             return self.dict_handler["csv"], sorting, options
 
-    def parse_handler_info(self,item):
+    def parse_handler_info(self, item):
         if "-by-" in item:
             name, sorting_and_options = item.split("-by-")
             if "#" in sorting_and_options:
@@ -118,8 +143,8 @@ class HandlerManager:
             else:
                 return item, None, None
 
-
-    def parse_options(self, option_str):
+    @staticmethod
+    def parse_options(option_str):
         list_options = option_str.split("&")
         for options_id in range(len(list_options)):
             list_options[options_id] = list_options[options_id].split("=")
@@ -127,9 +152,6 @@ class HandlerManager:
         for option_key, option_value in list_options:
             return_dict[option_key] = option_value
         return return_dict
-
-
-
 
 
 def check(proto, cipher, rand_bytes, host, port):
@@ -188,7 +210,7 @@ class OutputAbstract(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def new_address(self, proto_name, addr,port):
+    def new_address(self, proto_name, addr, port):
         pass
 
     @abc.abstractmethod
@@ -198,8 +220,9 @@ class OutputAbstract(abc.ABC):
     @abc.abstractmethod
     def end_of_process(self):
         pass
+
     @staticmethod
-    def select_file(path,name, extension):
+    def select_file(path, name, extension):
         if path is None:
             return FileAbstractionClass()
         elif os.path.exists(path):
@@ -209,25 +232,26 @@ class OutputAbstract(abc.ABC):
         else:
             return FileAbstractionClass(path)
 
+
 class JSONOutputClass(OutputAbstract):
 
     def __init__(self, path, cipher_dict, **options):
         self.path = path
         self.cipher_dict = cipher_dict
-        self.file = self.select_file(path,options.get("name"),".json")
+        self.file = self.select_file(path, options.get("name"), ".json")
         self.tree = []
 
     def new_proto(self, proto_name):
-        self.tree.append({"protocol":proto_name,"addresses":[]})
+        self.tree.append({"protocol": proto_name, "addresses": []})
 
-    def new_address(self, proto_name, addr,port):
-        self.tree[-1]["addresses"].append({"address":addr,"port":port,"ciphers":[]})
+    def new_address(self, proto_name, addr, port):
+        self.tree[-1]["addresses"].append({"address": addr, "port": port, "ciphers": []})
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        self.tree[-1]["addresses"][-1]["ciphers"].append({"cipher":cipher,"status":result})
+        self.tree[-1]["addresses"][-1]["ciphers"].append({"cipher": cipher, "status": result})
 
     def end_of_process(self):
-        self.file.write(json.dumps(self.tree,indent=1),"application/json")
+        self.file.write(json.dumps(self.tree, indent=1), "application/json")
 
 
 class CsvOutputClass(OutputAbstract):
@@ -240,19 +264,19 @@ class CsvOutputClass(OutputAbstract):
             self.first_line += "," + self.cipher_dict[cipher_id]["name"]
 
     def new_proto(self, proto_name):
-        self.file = self.select_file(self.path,proto_name,".csv")
+        self.file = self.select_file(self.path, proto_name, ".csv")
         if self.path is not None:
-            self.file.bwrite(self.first_line,"text/csv")
+            self.file.bwrite(self.first_line, "text/csv")
         else:
-            self.file.bwrite(proto_name + "\n" + self.first_line,"text/csv")
+            self.file.bwrite(proto_name + "\n" + self.first_line, "text/csv")
         if proto_name != "SSL v2.0":
             self.file.flush()
 
-    def new_address(self, proto_name, addr,port):
-        self.file.bwrite("\n" + addr,"text/csv")
+    def new_address(self, proto_name, addr, port):
+        self.file.bwrite("\n" + addr, "text/csv")
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        self.file.bwrite("," + result,"text/csv")
+        self.file.bwrite("," + result, "text/csv")
 
     def end_of_process(self):
         self.file.flush()
@@ -265,24 +289,29 @@ class XMLOutputClass(OutputAbstract):
         self.path = output
         self.root = xml.etree.ElementTree.Element("result")
         self.file = self.select_file(self.path, options.get("name"), ".xml")
+        self.last_proto = None
+        self.last_address = None
 
     def new_proto(self, proto_name):
-        self.last_proto = xml.etree.ElementTree.Element("protocol",name=proto_name)
+        self.last_proto = xml.etree.ElementTree.Element("protocol", name=proto_name)
         self.root.append(self.last_proto)
 
-    def new_address(self, proto_name, addr,port):
+    def new_address(self, proto_name, addr, port):
         self.last_address = xml.etree.ElementTree.Element("address", name=addr, port=port)
         self.last_proto.append(self.last_address)
 
     def new_cipher(self, proto_name, addr, cipher, result):
         if "-u" in result:
-            self.last_address.append(xml.etree.ElementTree.Element("cipher", name=cipher, status=result,unsecure="true"))
+            self.last_address.append(
+                xml.etree.ElementTree.Element("cipher", name=cipher, status=result, unsecure="true"))
         else:
-            self.last_address.append(xml.etree.ElementTree.Element("cipher",name=cipher, status=result ,unsecure="false"))
+            self.last_address.append(
+                xml.etree.ElementTree.Element("cipher", name=cipher, status=result, unsecure="false"))
 
     def end_of_process(self):
-        xml_minidom = xml.dom.minidom.parseString(xml.etree.ElementTree.tostring(self.root,"unicode",xml_declaration=True))
-        self.file.write(xml_minidom.toprettyxml(),"application/xml")
+        xml_minidom = xml.dom.minidom.parseString(
+            xml.etree.ElementTree.tostring(self.root, "unicode", xml_declaration=True))
+        self.file.write(xml_minidom.toprettyxml(), "application/xml")
 
 
 class VerboseOutputClass(OutputAbstract):
@@ -295,29 +324,29 @@ class VerboseOutputClass(OutputAbstract):
         self.path = output
         if output is None:
             self.frequent_flush = True
-        self.file = self.select_file(self.path,options.get("name"),".txt")
+        self.file = self.select_file(self.path, options.get("name"), ".txt")
 
     def new_proto(self, proto_name):
         self.file.bwrite("Testing ciphers of " + proto_name + " protocol :\n Number of tested cipher is : \n" + str(
-            len(self.cipher_dict)) + "\n","text/plain")
+            len(self.cipher_dict)) + "\n", "text/plain")
         if self.frequent_flush:
             self.file.flush()
 
-    def new_address(self, proto_name, addr,port):
-        self.file.bwrite("\tTesting cipher on " + addr + " :\n","text/plain")
+    def new_address(self, proto_name, addr, port):
+        self.file.bwrite("\tTesting cipher on " + addr + " :\n", "text/plain")
         if self.frequent_flush:
             self.file.flush()
 
     def new_cipher(self, proto_name, addr, cipher, result):
         if "-i" in result:
             self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure\
-                 cipher\n","text/plain")
+                 cipher\n", "text/plain")
         elif result == "y":
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n","text/plain")
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n", "text/plain")
         elif result == "n":
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n","text/plain")
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n", "text/plain")
         else:
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\t Error\n","text/plain")
+            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\t Error\n", "text/plain")
         if self.frequent_flush:
             self.file.flush()
 
@@ -331,10 +360,10 @@ class OpenMetrics(OutputAbstract):
     def __init__(self, output, cipher_dict, **options):
         if options.get("sorting") != "address":
             raise NotImplementedError("Openmetrics doesn't support any sorting else than by address")
-        self.file = self.select_file(output,options.get("name"),".txt")
+        self.file = self.select_file(output, options.get("name"), ".txt")
         self.per_address = {}
 
-    def new_address(self, proto_name, addr,port):
+    def new_address(self, proto_name, addr, port):
         self.per_address[addr] = []
 
     def new_proto(self, proto_name):
@@ -346,13 +375,14 @@ class OpenMetrics(OutputAbstract):
 
     def end_of_process(self):
         for address in self.per_address.keys():
-            self.file.bwrite("#TYPE " + address + " info\n","application/openmetrics-text; version=1.0.0; charset=utf-8")
+            self.file.bwrite("#TYPE " + address + " info\n",
+                             "application/openmetrics-text; version=1.0.0; charset=utf-8")
             self.file.bwrite("#HELP " + address + " Analysis of the " + address + "'s ciphers\n",
                              "application/openmetrics-text; version=1.0.0; charset=utf-8t")
             for info_dict in self.per_address[address]:
                 str_to_write = address + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
-                self.file.bwrite(str_to_write,"application/openmetrics-text; version=1.0.0; charset=utf-8")
-            self.file.bwrite("\n","application/openmetrics-text; version=1.0.0; charset=utf-8")
+                self.file.bwrite(str_to_write, "application/openmetrics-text; version=1.0.0; charset=utf-8")
+            self.file.bwrite("\n", "application/openmetrics-text; version=1.0.0; charset=utf-8")
         self.file.flush()
 
     def dictionary_to_metrics(self, dictionary, addr):
@@ -486,9 +516,9 @@ class Prog:
         self.handler = handler
         self.conf = conf
         if self.conf.verbose:
-            self.text_handler, self.sorting,self.options = self.handler["verbose"]
+            self.text_handler, self.sorting, self.options = self.handler["verbose"]
         else:
-            self.text_handler, self.sorting,self.options = self.handler[self.conf.format]
+            self.text_handler, self.sorting, self.options = self.handler[self.conf.format]
         self.mod_loader = ModLoader(self.conf.module_path)
         if self.conf.update is not None:
             self.mod = self.mod_loader.update_config(self.conf.update)
@@ -496,21 +526,22 @@ class Prog:
             self.mod = self.mod_loader.load_module()
 
     def __call__(self):
-        self.text_handler(self.conf.output, self.mod.cipher_suites,sorting=self.sorting,**self.options)  # instantiating the text_handler
+        self.text_handler(self.conf.output, self.mod.cipher_suites, sorting=self.sorting,
+                          **self.options)  # instantiating the text_handler
         for proto_name, proto_handshake in self.mod.handshake_pkts.items():
             self.text_handler.new_proto(proto_name)  # start of the writing process
             for address in self.conf.list_address:
                 self.text_handler.new_address(proto_name, address, self.conf)
                 self.port = self.conf.detect_port(address, self.mod.potential_ports)
                 for cipher in self.mod.cipher_suites.keys():
-                    result = check(proto_handshake, cipher, self.mod.rand_bytes, address,self.port)
+                    result = check(proto_handshake, cipher, self.mod.rand_bytes, address, self.port)
                     str_result = self.result_handler(result, cipher, proto_name)
                     unsecure, reason = self.is_unsecure(cipher, proto_name)
                     if unsecure:
                         if not (result <= 0 and not self.conf.unsecure_on_refuse):
                             str_result = self.on_unsecure(
                                 {"reason": reason, "standard-text": str_result, "proto-name": proto_name,
-                                 "cipher-suite": cipher, "address": address,"port":self.port})
+                                 "cipher-suite": cipher, "address": address, "port": self.port})
                     self.text_handler.new_cipher(str_result)
         self.text_handler.end_of_process()
 
