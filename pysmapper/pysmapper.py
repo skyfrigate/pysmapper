@@ -182,9 +182,9 @@ def check(proto, cipher, rand_bytes, host, port):
     cipher_int = binascii.a2b_hex(cipher)
     try:
         sock.connect((host, port))
-    except socket.error as e:
+    except socket.error or TimeoutError as e:
         sock.close()
-        sys.stderr.write(e)
+        sys.stderr.write(str(e))
         return -1
     sock.send(proto + cipher_int + rand_bytes)
     try:
