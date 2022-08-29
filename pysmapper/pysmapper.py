@@ -1,5 +1,6 @@
 #! /usr/bin/python3
 import binascii
+import datetime
 import socket
 import subprocess
 import sys
@@ -41,15 +42,16 @@ class FileAbstractionClass:
         self.mimetype = None
 
     def write(self, content, mimetype=None):
-        if os.path.exists(self.filename):
-            file = open(self.filename, "a")
-            file.write(content)
-            file.close()
-        elif self.is_url:
-            if mimetype is None:
-                urllib.request.urlopen(urllib.request.Request(self.filename, content))
+        if self.filename is not None:
+            if os.path.exists(self.filename):
+                file = open(self.filename, "a")
+                file.write(content)
+                file.close()
             else:
-                urllib.request.urlopen(urllib.request.Request(self.filename, content, {"Content-Type": mimetype}))
+                if mimetype is None:
+                    urllib.request.urlopen(urllib.request.Request(self.filename, content))
+                else:
+                    urllib.request.urlopen(urllib.request.Request(self.filename, content, {"Content-Type": mimetype}))
         else:
             sys.stdout.write(content)
 
@@ -131,17 +133,25 @@ class HandlerManager:
             name, sorting_and_options = item.split("-by-")
             if "#" in sorting_and_options:
                 sorting, options = sorting_and_options.split("#")
-                options = self.parse_options(options)
+                if options == "":
+                    options = {}
+                else:
+                    options = self.parse_options(options)
                 return name, sorting, options
             else:
-                return name, sorting_and_options, None
+                if sorting_and_options == "":
+                    sorting_and_options = None
+                return name, sorting_and_options, {}
         else:
             if "#" in item:
                 name, options = item.split("#")
-                options = self.parse_options(options)
+                if options == "":
+                    options = {}
+                else:
+                    options = self.parse_options(options)
                 return name, None, options
             else:
-                return item, None, None
+                return item, None, {}
 
     @staticmethod
     def parse_options(option_str):
@@ -248,7 +258,7 @@ class JSONOutputClass(OutputAbstract):
         self.tree[-1]["addresses"].append({"address": addr, "port": port, "ciphers": []})
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        self.tree[-1]["addresses"][-1]["ciphers"].append({"cipher": cipher, "status": result})
+        self.tree[-1]["addresses"][-1]["ciphers"].append({"cipher": self.cipher_dict[cipher], "status": result})
 
     def end_of_process(self):
         self.file.write(json.dumps(self.tree, indent=1), "application/json")
@@ -303,10 +313,12 @@ class XMLOutputClass(OutputAbstract):
     def new_cipher(self, proto_name, addr, cipher, result):
         if "-u" in result:
             self.last_address.append(
-                xml.etree.ElementTree.Element("cipher", name=cipher, status=result, unsecure="true"))
+                xml.etree.ElementTree.Element("cipher", name=self.cipher_dict[cipher]["name"], status=result,
+                                              unsecure="true"))
         else:
             self.last_address.append(
-                xml.etree.ElementTree.Element("cipher", name=cipher, status=result, unsecure="false"))
+                xml.etree.ElementTree.Element("cipher", name=self.cipher_dict[cipher]["name"], status=result,
+                                              unsecure="false"))
 
     def end_of_process(self):
         xml_minidom = xml.dom.minidom.parseString(
@@ -320,6 +332,7 @@ class VerboseOutputClass(OutputAbstract):
     """
 
     def __init__(self, output, cipher_dict, **options):
+        print("instantiated")
         self.cipher_dict = cipher_dict
         self.path = output
         if output is None:
@@ -338,15 +351,20 @@ class VerboseOutputClass(OutputAbstract):
             self.file.flush()
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        if "-i" in result:
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported - Warning insecure\
+        if "-u" in result:
+            self.file.bwrite("\tTesting " + self.cipher_dict[cipher]["name"] + " cipher suite :\n\t\tCipher supported - Warning unsecure\
                  cipher\n", "text/plain")
         elif result == "y":
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher supported\n", "text/plain")
+            self.file.bwrite(
+                "\tTesting " + self.cipher_dict[cipher]["name"] + " cipher suite :\n\t\tCipher supported\n",
+                "text/plain")
         elif result == "n":
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\tCipher unsupported\n", "text/plain")
+            self.file.bwrite(
+                "\tTesting " + self.cipher_dict[cipher]["name"] + " cipher suite :\n\t\tCipher unsupported\n",
+                "text/plain")
         else:
-            self.file.bwrite("\tTesting " + cipher + " cipher suite :\n\t\t Error\n", "text/plain")
+            self.file.bwrite("\tTesting " + self.cipher_dict[cipher]["name"] + " cipher suite :\n\t\t Error\n",
+                             "text/plain")
         if self.frequent_flush:
             self.file.flush()
 
@@ -362,6 +380,7 @@ class OpenMetrics(OutputAbstract):
             raise NotImplementedError("Openmetrics doesn't support any sorting else than by address")
         self.file = self.select_file(output, options.get("name"), ".txt")
         self.per_address = {}
+        self.cipher_dict = cipher_dict
 
     def new_address(self, proto_name, addr, port):
         self.per_address[addr] = []
@@ -371,7 +390,8 @@ class OpenMetrics(OutputAbstract):
 
     def new_cipher(self, proto_name, addr, cipher, result):
         self.per_address[addr].append(
-            {"protocol-version": proto_name, "name": addr, "cipher": cipher, "status": result})
+            {"protocol-version": proto_name, "name": addr, "cipher": self.cipher_dict[cipher]["name"],
+             "status": result})
 
     def end_of_process(self):
         for address in self.per_address.keys():
@@ -487,7 +507,8 @@ class ModLoader:
         if new_conf["mode"] == 'add':
             old_conf.handshake_pkts.update(new_conf["handshake_pkts"])
             old_conf.cipher_suites.update(new_conf["cipher_suites"])
-        str_conf = "handshake_pkts = " + str(old_conf.handshake_pkts) + "\n\ncipher_suites = " + str(
+        str_conf = "# Last edited on" + str(datetime.datetime.today()) + "\nhandshake_pkts = " + str(
+            old_conf.handshake_pkts) + "\n\ncipher_suites = " + str(
             old_conf.cipher_suites) + "\n\nrand_bytes = " + str(old_conf.rand_bytes) + "\n\naccept_cipher = " + str(
             old_conf.accept_cipher) + "\n\naccept_proto = " + str(
             old_conf.accept_proto) + "\n\npotential_ports = " + str(
@@ -526,8 +547,8 @@ class Prog:
             self.mod = self.mod_loader.load_module()
 
     def __call__(self):
-        self.text_handler(self.conf.output, self.mod.cipher_suites, sorting=self.sorting,
-                          **self.options)  # instantiating the text_handler
+        self.text_handler = self.text_handler(self.conf.output, self.mod.cipher_suites, sorting=self.sorting,
+                                              **self.options)  # instantiating the text_handler
         for proto_name, proto_handshake in self.mod.handshake_pkts.items():
             self.text_handler.new_proto(proto_name)  # start of the writing process
             for address in self.conf.list_address:
@@ -536,13 +557,13 @@ class Prog:
                 for cipher in self.mod.cipher_suites.keys():
                     result = check(proto_handshake, cipher, self.mod.rand_bytes, address, self.port)
                     str_result = self.result_handler(result, cipher, proto_name)
-                    unsecure, reason = self.is_unsecure(cipher, proto_name)
+                    unsecure, reason = self.is_unsecure(self.mod.cipher_suites[cipher]["name"], proto_name)
                     if unsecure:
                         if not (result <= 0 and not self.conf.unsecure_on_refuse):
                             str_result = self.on_unsecure(
                                 {"reason": reason, "standard-text": str_result, "proto-name": proto_name,
                                  "cipher-suite": cipher, "address": address, "port": self.port})
-                    self.text_handler.new_cipher(str_result)
+                    self.text_handler.new_cipher(proto_name, address, cipher, str_result)
         self.text_handler.end_of_process()
 
     def on_unsecure(self, info):
@@ -574,7 +595,7 @@ class Prog:
         if result == -1:
             return "e"
         elif result == 0:
-            if self.conf.on_refused_text is not None:
+            if self.conf.on_refused_callback is not None:
                 return subprocess.run(self.conf.on_refused_callback.split(" ") + [cipher, proto_name],
                                       encoding="utf-8").stdout
             return self.conf.on_refused_text
@@ -631,7 +652,7 @@ parser.add_argument("-mp", "--module-path", dest="module_path",
 parser.add_argument("-u", "--update", dest="update", help="Specifying an update for the config of the\
      program, must be followed by a path to a python file containing the update data see documentation in the code for \
                                                                             more information")
-parser.add_argument("-ount", "--on-unsecure-text", dest="on_unsecure_text", default="-i", help="Define the text to be\
+parser.add_argument("-ount", "--on-unsecure-text", dest="on_unsecure_text", default="-u", help="Define the text to be\
  printed if a protocol is available but should not be used, it might be added to the on-accepted-text")
 parser.add_argument("-oat", "--on-accepted-text", default="y", dest="on_accepted_text",
                     help="define a text to be printed if the protocol is supported by the host")
