@@ -383,30 +383,34 @@ class OpenMetrics(OutputAbstract):
         self.cipher_dict = cipher_dict
 
     def new_address(self, proto_name, addr, port):
-        self.per_address[addr] = []
+        if len(self.per_address) != 0:
+            self.per_address[addr][proto_name] = []
+        else:
+            self.per_address[addr] = {proto_name:[]}
 
     def new_proto(self, proto_name):
         pass
 
     def new_cipher(self, proto_name, addr, cipher, result):
-        self.per_address[addr].append(
+        self.per_address[addr][proto_name].append(
             {"protocol-version": proto_name, "name": addr, "cipher": self.cipher_dict[cipher]["name"],
              "status": result})
 
     def end_of_process(self):
         for address in self.per_address.keys():
-            self.file.bwrite("#TYPE " + address + " info\n",
+            for proto_name in self.per_address[address].keys():
+                self.file.bwrite("#TYPE " + address + " info\n",
                              "application/openmetrics-text; version=1.0.0; charset=utf-8")
-            self.file.bwrite("#HELP " + address + " Analysis of the " + address + "'s ciphers\n",
+                self.file.bwrite("#HELP " + address + " Analysis of the " + address + "'s ciphers\n",
                              "application/openmetrics-text; version=1.0.0; charset=utf-8t")
-            for info_dict in self.per_address[address]:
-                str_to_write = address + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
-                self.file.bwrite(str_to_write, "application/openmetrics-text; version=1.0.0; charset=utf-8")
-            self.file.bwrite("\n", "application/openmetrics-text; version=1.0.0; charset=utf-8")
+                for info_dict in self.per_address[address][proto_name]:
+                    str_to_write = address + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
+                    self.file.bwrite(str_to_write, "application/openmetrics-text; version=1.0.0; charset=utf-8")
+                self.file.bwrite("\n", "application/openmetrics-text; version=1.0.0; charset=utf-8")
         self.file.flush()
 
     def dictionary_to_metrics(self, dictionary, addr):
-        str_to_return = addr + str(dictionary)
+        str_to_return = str(dictionary)
         str_to_return = str_to_return.replace("'", "\"")
         str_to_return = re.sub(self.format_regex, "", str_to_return)
         str_to_return = str_to_return.replace(": ", "=")
