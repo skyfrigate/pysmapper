@@ -155,7 +155,7 @@ class HandlerManager:
 
     @staticmethod
     def parse_options(option_str):
-        list_options = option_str.split("&")
+        list_options = option_str.split(",")
         for options_id in range(len(list_options)):
             list_options[options_id] = list_options[options_id].split("=")
         return_dict = {}
@@ -381,6 +381,7 @@ class OpenMetrics(OutputAbstract):
         self.file = self.select_file(output, options.get("name"), ".txt")
         self.per_address = {}
         self.cipher_dict = cipher_dict
+        self.options = options
 
     def new_address(self, proto_name, addr, port):
         if len(self.per_address) != 0:
@@ -397,16 +398,31 @@ class OpenMetrics(OutputAbstract):
              "status": result})
 
     def end_of_process(self):
-        for address in self.per_address.keys():
-            for proto_name in self.per_address[address].keys():
-                self.file.bwrite("#TYPE " + address + " info\n",
+        if self.options.get("one-family") is not None:
+            if self.options.get("one-family").lower() == "true":
+                if self.options.get("custom-name") is not None:
+                    name = self.options["custom-name"]
+                else:
+                    name = "cypher_scan"
+                self.file.bwrite("#TYPE " + name + " info\n","application/openmetrics-text; version=1.0.0; charset=utf-8")
+                self.file.bwrite("#HELP " + name + " Analysis of the ciphers\n",
+                                 "application/openmetrics-text; version=1.0.0; charset=utf-8t")
+                for address in self.per_address.keys():
+                    for proto_name in self.per_address[address].keys():
+                        for info_dict in self.per_address[address][proto_name]:
+                            str_to_write = name + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
+                            self.file.bwrite(str_to_write, "application/openmetrics-text; version=1.0.0; charset=utf-8")
+        else:
+            for address in self.per_address.keys():
+                for proto_name in self.per_address[address].keys():
+                    self.file.bwrite("#TYPE " + address + " info\n",
                              "application/openmetrics-text; version=1.0.0; charset=utf-8")
-                self.file.bwrite("#HELP " + address + " Analysis of the " + address + "'s ciphers\n",
+                    self.file.bwrite("#HELP " + address + " Analysis of the " + address + "'s ciphers\n",
                              "application/openmetrics-text; version=1.0.0; charset=utf-8t")
-                for info_dict in self.per_address[address][proto_name]:
-                    str_to_write = address + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
-                    self.file.bwrite(str_to_write, "application/openmetrics-text; version=1.0.0; charset=utf-8")
-                self.file.bwrite("\n", "application/openmetrics-text; version=1.0.0; charset=utf-8")
+                    for info_dict in self.per_address[address][proto_name]:
+                        str_to_write = address + "_info" + self.dictionary_to_metrics(info_dict, address) + " 1\n"
+                        self.file.bwrite(str_to_write, "application/openmetrics-text; version=1.0.0; charset=utf-8")
+                    self.file.bwrite("\n", "application/openmetrics-text; version=1.0.0; charset=utf-8")
         self.file.flush()
 
     def dictionary_to_metrics(self, dictionary, addr):
@@ -414,7 +430,6 @@ class OpenMetrics(OutputAbstract):
         str_to_return = str_to_return.replace("'", "\"")
         str_to_return = re.sub(self.format_regex, "", str_to_return)
         str_to_return = str_to_return.replace(": ", "=")
-        str_to_return = str_to_return.replace(",", "")
         return str_to_return
 
 

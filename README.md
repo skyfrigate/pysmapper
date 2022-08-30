@@ -47,7 +47,7 @@ You can specify the output format through the `-f` options and specifying the na
 To have a more flexible output and to not mix up with common argument you can give specific argument to the text 
 formatter by following a simple pattern in the `-f` options.
 The pattern is the following :
-`-f <output format>-by-<sorting>#<key-value parameter linked by a "=" and separated by a "&" >`
+`-f <output format>-by-<sorting>#<key-value parameter linked by a "=" and separated by a "," >`
 An example would look like this :
 `pysmapper -f openmetrics-by-address#name=data&type=info`
 #### The output media
