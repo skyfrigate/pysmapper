@@ -8,7 +8,7 @@ Here are the command line option and descritption
 Défini si la commande doit afficher les résultats de manière facilement lisible
 #### -i | --input
 An option that describe a path to file a file which will be used to indicate hosts. The file must list the addresses
-separated by carriage return. Addresses can be IPv4 addresses or domain name. The path can be a standard os path,a http\
+separated by carriage return. Addresses can be IPv4 addresses, IPv6 addresses or domain names. The path can be a standard os path,a http\
 https URL, a ftp/ftps URL, a file URL or a data URL
 #### -p | --port
 An option that describe a specific port to check the ciphers on, by default it is set to 443 which is the HTTPS tcp port

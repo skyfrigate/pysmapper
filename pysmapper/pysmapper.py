@@ -178,13 +178,10 @@ def check(proto, cipher, rand_bytes, host, port):
     :param port: int
     :return: int
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     cipher_int = binascii.a2b_hex(cipher)
     try:
-        sock.connect((host, port))
+        sock = socket.create_connection((host,port))
     except socket.error or TimeoutError as e:
-        sock.close()
-        sys.stderr.write(str(e))
         return -1
     sock.send(proto + cipher_int + rand_bytes)
     try:
