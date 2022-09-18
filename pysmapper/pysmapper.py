@@ -439,7 +439,9 @@ class Config:
         self.list_address = parsed_args.iplist
         if parsed_args.input is not None:
             file = FileAbstractionClass(parsed_args.input)
-            add_ip_list = file.readlines()
+            add_ip_list = []
+            for item_list in file.readlines():
+                add_ip_list.append(item_list.rstrip("\n\r"))
             self.list_address += add_ip_list
         self.input = parsed_args.input
         self.verbose = parsed_args.verbose
