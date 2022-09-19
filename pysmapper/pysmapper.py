@@ -381,9 +381,9 @@ class OpenMetrics(OutputAbstract):
         self.options = options
 
     def new_address(self, proto_name, addr, port):
-        if len(self.per_address) != 0:
+        try:
             self.per_address[addr][proto_name] = []
-        else:
+        except KeyError:
             self.per_address[addr] = {proto_name:[]}
 
     def new_proto(self, proto_name):
