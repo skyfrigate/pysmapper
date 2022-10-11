@@ -30,7 +30,11 @@ Default text to be sent to the text handler if the cipher is accepted. If not sp
 #### -pd | --port-detection
 Enable the port detection on the program. So the program will try to find port using TLS/SSL. If -port is present -pd is
 ignored. Using -pd might make the program run slower as it will try to establish 11 tcp connection at each try. It will
-stop his research at the first available port found. 
+stop his research at the first available port found.
+#### -ounc | --on_unsecure_callback
+Define a programm to be called if an unsecrured cipher is found, it must describe the entire command line to execute
+#### -uor | --unsecure-on-refused
+A boolean argument that describe if an unsecure process should be called on refused ciphers
 ### Updating pysmapper
 To update psymapper you need to execute `pysmapper.py --update <config file>` where config file is a path to a python.
 It is the same as describe just above. However, the python update file need some specific element to work well.
@@ -58,3 +62,36 @@ You just have to specify the URL at the `-o` as for a regular directory
 
 If no `-o` option is selected, the output will be the standard one
 ## Building over pysmapper
+You can also use pysmapper as a simple library which allows you to reuse object and override methods to have a specific
+of the program internal process. Arguments to text formatter are given as described above.
+## Text format specification
+Each text-formatter has its own specific description as they have different behavior. The specification of the native 
+text formatter are described below
+### OpenMetrics formatter
+The OpenMetrics text formatter allow you to have an output in the OpenMetrics format.
+It writes an output using info type. Natively, it will create a new family for each new address, and will give different
+in the following pattern :<br>
+``` <address>_info {protocol-version=<proto_name>, name=<addr>, cipher=<name of the cipher>,status=<status of the cipher>}```
+#### OpenMetrics formatter parameters
+- `one-family` : describe whether the formatter should use only one family for the whole analysis, by default the name 
+will be `cipher_scan_info`
+- `custom-name` : describe a custom name for the unique family. It needs to be with a one-family parameter
+- `name` : specifies a specific name for the output filename
+#### Sorting possibilities
+OpenMetrics text formatter only support a sorting by address, and it must be specified
+### XML formatter
+The XML formatter allow you to have an output in the XML format. By default, it will follow a tree like this :
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<result>
+    <protocol name="<name of the protocol>">
+        <address name="<address of the target" port="<port number>">
+            <cipher name="name of the cipher" status="<status of the cipher>" unsecure="<whether the cipher is secured or not>"/>
+        </address>
+    </protocol>
+    <protocol>
+        ...
+    </protocol>
+    ...
+</result>
+```
